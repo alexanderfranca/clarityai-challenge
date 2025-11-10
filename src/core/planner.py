@@ -114,7 +114,7 @@ def build_plan(
                         "feed": matched_feed,
                         "target_entity": matched_entity,
                     })
-                    logger.info(f"Plan: {file_path.name} → {matched_entity}")
+                    logger.info(f"Plan: {file_path.name} -> {matched_entity}")
                 else:
                     logger.warning(f"Unmatched file: {file_path.name}")
 
