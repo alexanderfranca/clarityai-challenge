@@ -13,6 +13,8 @@ dist/
 *.egg-info/
 .eggs/
 
+audit/
+
 .pytest_cache/
 .coverage
 htmlcov/

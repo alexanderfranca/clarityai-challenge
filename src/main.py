@@ -4,6 +4,7 @@ import csv
 import hashlib
 import fnmatch
 import yaml
+import json
 from typing import (
         Dict,
         List,
@@ -18,6 +19,9 @@ from datetime import datetime, timezone
 CONFIG_DIR = Path(__file__).resolve().parents[1] / "configs"
 DATA_INCOMING = Path(__file__).resolve().parents[1] / "data" / "incoming"
 BRONZE_ROOT = Path(__file__).resolve().parents[1] / "data" / "bronze"
+AUDIT_LEDGER = Path(__file__).resolve().parents[1] / "audit" / "ledger.jsonl"
+AUDIT_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+
 logger = init_logger()
 
 
@@ -252,6 +256,14 @@ def precheck_and_schema_gate(
 
         file_hash = _sha256_file(file_path)
 
+        if already_processed(
+                provider,
+                item["batch_id"],
+                file_path.name,
+                file_hash):
+            logger.info(f"Skip (already processed): {file_path.name}")
+            continue
+
         delimiter, encoding = _csv_options(feed_cfg)
         try:
             header = _csv_header(file_path, delimiter=delimiter, encoding=encoding)
@@ -362,7 +374,8 @@ def ingest_domestic_csv(item: dict, mappings_cfg: dict) -> None:
 
     out_dir = BRONZE_ROOT / provider / feed / batch_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / "part-0001.csv"
+    file_hash_file_name = f"{item['file_hash'][:12]}.csv"
+    out_path = out_dir / file_hash_file_name
 
     out_columns = [
         # bronze metadata
@@ -391,7 +404,9 @@ def ingest_domestic_csv(item: dict, mappings_cfg: dict) -> None:
         writer = csv.DictWriter(fout, fieldnames=out_columns)
         writer.writeheader()
 
+        rows_in = 0
         for raw in reader:
+            rows_in += 1
             title_raw = raw.get("film_name", "")
             year_raw = raw.get("year_of_release", "")
             gross_raw = raw.get("box_office_gross_usd", "")
@@ -441,7 +456,247 @@ def ingest_domestic_csv(item: dict, mappings_cfg: dict) -> None:
             })
             rows_out += 1
 
+    write_audit(
+        provider=provider, batch_id=batch_id, feed=feed,
+        source_file=file_path.name, file_hash=item["file_hash"],
+        rows_in=rows_in, rows_out=rows_out, status="ok"
+    )
     logger.info(f"Wrote bronze: {out_path} (rows={rows_out})")
+
+
+def _row_record_hash_international(row: dict) -> str:
+    payload = f"{row.get('movie_key','')}|{row.get('title','')}|{row.get('year','')}|{row.get('international_box_office_gross','')}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _row_record_hash_financials(row: dict) -> str:
+    payload = f"{row.get('movie_key','')}|{row.get('title','')}|{row.get('year','')}|{row.get('production_budget_usd','')}|{row.get('marketing_spend_usd','')}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def ingest_international_csv(item: dict, mappings_cfg: dict) -> None:
+    if item["feed"] != "international_csv":
+        return
+
+    provider = item["provider"]; batch_id = item["batch_id"]; feed = item["feed"]
+    file_path = Path(item["file"])
+    providers_cfg = mappings_cfg["providers"]
+    feed_cfg = providers_cfg[provider]["feeds"][feed]
+    csv_opts = feed_cfg.get("csv_options", {})
+    delimiter = csv_opts.get("delimiter", ","); encoding = csv_opts.get("encoding", "utf-8")
+    schema_version = providers_cfg[provider].get("schema_version", 1)
+
+    out_dir = BRONZE_ROOT / provider / feed / batch_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_hash_file_name = f"{item['file_hash'][:12]}.csv"
+    out_path = out_dir / file_hash_file_name
+
+    out_columns = [
+        "provider","feed","batch_id","source_file","source_mod_time","file_hash","ingest_ts","schema_version","record_hash",
+        "movie_key","title","year","international_box_office_gross",
+    ]
+
+    seen = set(); rows_out = 0; rows_in = 0
+    ingest_ts = datetime.now(timezone.utc).isoformat()
+
+    with file_path.open("r", encoding=encoding, newline="") as fin, out_path.open("w", encoding="utf-8", newline="") as fout:
+        reader = csv.DictReader(fin, delimiter=delimiter)
+        writer = csv.DictWriter(fout, fieldnames=out_columns); writer.writeheader()
+
+        rows_in = 0
+        for raw in reader:
+            rows_in += 1
+            title = _collapse_ws(raw.get("film_name", ""))
+            try:
+                year = int(raw.get("year_of_release", ""))
+            except Exception:
+                logger.warning(f"Drop row (bad year): {file_path.name} -> {raw.get('year_of_release')!r}"); continue
+            if year < 1900 or year > 2035:
+                logger.warning(f"Drop row (year out of range): {file_path.name} -> {year}"); continue
+
+            international_box_office_gross = _nonneg_int(raw.get("box_office_gross_usd", ""))
+
+            movie_key = _derive_movie_key_v1(title, year)
+            business_row = {
+                "movie_key": movie_key,
+                "title": title,
+                "year": year,
+                "international_box_office_gross": international_box_office_gross,
+            }
+            record_hash = _row_record_hash_international(business_row)
+            dedupe_key = (movie_key, record_hash)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            writer.writerow({
+                "provider": provider,
+                "feed": feed,
+                "batch_id": batch_id,
+                "source_file": file_path.name,
+                "source_mod_time": item["source_mod_time"],
+                "file_hash": item["file_hash"],
+                "ingest_ts": ingest_ts,
+                "schema_version": schema_version,
+                "record_hash": record_hash,
+                **business_row,
+            })
+            rows_out += 1
+
+    write_audit(
+        provider=provider, batch_id=batch_id, feed=feed,
+        source_file=file_path.name, file_hash=item["file_hash"],
+        rows_in=rows_in, rows_out=rows_out, status="ok"
+    )
+    logger.info(
+            f"Wrote bronze: {out_path} "
+            f"(rows_in={rows_in}, rows_out={rows_out})"
+    )
+
+
+def ingest_financials_csv(item: dict, mappings_cfg: dict) -> None:
+    if item["feed"] != "financials_csv":
+        return
+
+    provider = item["provider"]; batch_id = item["batch_id"]; feed = item["feed"]
+    file_path = Path(item["file"])
+    providers_cfg = mappings_cfg["providers"]
+    feed_cfg = providers_cfg[provider]["feeds"][feed]
+    csv_opts = feed_cfg.get("csv_options", {})
+    delimiter = csv_opts.get("delimiter", ","); encoding = csv_opts.get("encoding", "utf-8")
+    schema_version = providers_cfg[provider].get("schema_version", 1)
+
+    out_dir = BRONZE_ROOT / provider / feed / batch_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    file_hash_file_name = f"{item['file_hash'][:12]}.csv"
+    out_path = out_dir / file_hash_file_name
+
+    out_columns = [
+        "provider","feed","batch_id","source_file","source_mod_time","file_hash","ingest_ts","schema_version","record_hash",
+        "movie_key","title","year","production_budget_usd","marketing_spend_usd",
+    ]
+
+    seen = set(); rows_out = 0; rows_in = 0
+    ingest_ts = datetime.now(timezone.utc).isoformat()
+
+    with file_path.open("r", encoding=encoding, newline="") as fin, out_path.open("w", encoding="utf-8", newline="") as fout:
+        reader = csv.DictReader(fin, delimiter=delimiter)
+        writer = csv.DictWriter(fout, fieldnames=out_columns); writer.writeheader()
+
+        rows_in = 0
+        for raw in reader:
+            rows_in += 1
+            title = _collapse_ws(raw.get("film_name", ""))
+            try:
+                year = int(raw.get("year_of_release", ""))
+            except Exception:
+                logger.warning(f"Drop row (bad year): {file_path.name} -> {raw.get('year_of_release')!r}"); continue
+            if year < 1900 or year > 2035:
+                logger.warning(f"Drop row (year out of range): {file_path.name} -> {year}"); continue
+
+            production_budget_usd = _nonneg_int(raw.get("production_budget_usd", ""))
+            marketing_spend_usd   = _nonneg_int(raw.get("marketing_spend_usd", ""))
+
+            movie_key = _derive_movie_key_v1(title, year)
+            business_row = {
+                "movie_key": movie_key,
+                "title": title,
+                "year": year,
+                "production_budget_usd": production_budget_usd,
+                "marketing_spend_usd": marketing_spend_usd,
+            }
+            record_hash = _row_record_hash_financials(business_row)
+            dedupe_key = (movie_key, record_hash)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            writer.writerow({
+                "provider": provider,
+                "feed": feed,
+                "batch_id": batch_id,
+                "source_file": file_path.name,
+                "source_mod_time": item["source_mod_time"],
+                "file_hash": item["file_hash"],
+                "ingest_ts": ingest_ts,
+                "schema_version": schema_version,
+                "record_hash": record_hash,
+                **business_row,
+            })
+            rows_out += 1
+
+    write_audit(
+        provider=provider, batch_id=batch_id, feed=feed,
+        source_file=file_path.name, file_hash=item["file_hash"],
+        rows_in=rows_in, rows_out=rows_out, status="ok"
+    )
+    logger.info(f"Wrote bronze: {out_path} (rows_in={rows_in}, rows_out={rows_out})")
+
+
+def already_processed(provider: str, batch_id: str, source_file: str, file_hash: str) -> bool:
+    if not AUDIT_LEDGER.exists():
+        return False
+    key = (provider, batch_id, source_file, file_hash)
+    with AUDIT_LEDGER.open("r", encoding="utf-8") as f:
+        for line in f:
+            try:
+                rec = json.loads(line)
+                if (rec.get("provider"), rec.get("batch_id"), rec.get("source_file"), rec.get("file_hash")) == key:
+                    return True
+            except Exception:
+                continue
+    return False
+
+
+def write_audit(**kwargs):
+    rec = dict(kwargs)
+    rec.setdefault("ts", datetime.now(timezone.utc).isoformat())
+    with AUDIT_LEDGER.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+
+def consolidate_bronze_feed(provider: str, feed: str, batch_id: str):
+    base = BRONZE_ROOT / provider / feed / batch_id
+    parts = sorted(
+            p for p in base.glob("*.csv") if p.name != "consolidated.csv"
+            )
+    if not parts:
+        logger.warning(
+                "No parts to consolidate for "
+                f"{provider}/{feed}/{batch_id}"
+        )
+        return
+    out_cols = None
+    seen = set()
+    out_path = base / "consolidated.csv"
+    rows_out = 0
+    with out_path.open("w", encoding="utf-8", newline="") as fout:
+        writer = None
+        for part in parts:
+            with part.open("r", encoding="utf-8", newline="") as fin:
+                reader = csv.DictReader(fin)
+                if not reader.fieldnames:
+                    logger.warning(
+                            f"Skip empty/invalid part (no header): {part}"
+                    )
+                    continue
+
+                if out_cols is None:
+                    out_cols = list(reader.fieldnames) 
+                    writer = csv.DictWriter(fout, fieldnames=out_cols)
+                    writer.writeheader()
+
+                for row in reader:
+                    key = (row["movie_key"], row["record_hash"])
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    writer.writerow(row)
+                    rows_out += 1
+    logger.info(
+            f"Consolidated {len(parts)} part(s) "
+            f"-> {out_path} (rows={rows_out})"
+    )
 
 
 def main() -> None:
@@ -457,7 +712,7 @@ def main() -> None:
     logger.info(f"- contracts: {len(contracts)} top-level keys")
     logger.info(f"- mappings:  {len(mappings)} top-level keys")
     logger.info(f"- paths:     {len(paths)} top-level keys")
-    logger.info("All contracts and configs loadded successfully.")
+    logger.info("All contracts and configs loaded successfully.")
 
     batches = discover_batches(paths)
     logger.info(f"Found batches: {batches}")
@@ -469,6 +724,16 @@ def main() -> None:
 
     for q in qualified_plan:
         ingest_domestic_csv(q, mappings)
+        ingest_international_csv(q, mappings)
+        ingest_financials_csv(q, mappings)
+
+    processed_batches = {
+            (i["provider"], i["batch_id"]) for i in qualified_plan
+            }
+
+    for provider, batch_id in sorted(processed_batches):
+        for feed in ["domestic_csv", "international_csv", "financials_csv"]:
+            consolidate_bronze_feed(provider, feed, batch_id)
 
 
 if __name__ == "__main__":
