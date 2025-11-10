@@ -1,8 +1,11 @@
+from pprint import pprint
 import sys
+import fnmatch
 import yaml
 from typing import (
         Dict,
         List,
+        Any,
 )
 from pathlib import Path
 from utils.log import init_logger
@@ -60,7 +63,7 @@ def discover_batches(paths_cfg: dict) -> Dict[str, List[str]]:
             marker = batch_dir / readiness
             if marker.exists():
                 ready_batches.append(batch_dir.name)
-                logger.info(f"Ready batch: {provider}/{batch_dir.name}")
+                logger.info(f"Batch ready: {provider}/{batch_dir.name}")
                 continue
 
             if quarantine_sec > 0:
@@ -87,6 +90,73 @@ def discover_batches(paths_cfg: dict) -> Dict[str, List[str]]:
     return result
 
 
+def build_plan(batches: Dict[str, List[str]], mappings_cfg: dict) -> List[Dict[str, Any]]:
+    """
+    Build a plan of execution.
+    The plan is a relation between source files and entities/feeds.
+    """
+    plan = []
+    for provider, batch_ids in batches.items():
+        provider_cfg = mappings_cfg.get("providers", {}).get(provider)
+        if not provider_cfg:
+            logger.warning(f"No mapping found for provider: {provider}")
+            continue
+
+        feeds = provider_cfg.get("feeds", {})
+        if not feeds:
+            logger.warning(f"No feeds found for provider: {provider}")
+            continue
+
+        for batch_id in batch_ids:
+            batch_path = Path("data/incoming") / provider / batch_id
+            for file_path in sorted(batch_path.glob("*")):
+                if not file_path.is_file() or file_path.name.startswith("_"):
+                    continue
+
+                matched_feed = None
+                matched_entity = None
+                for feed_name, feed_cfg in feeds.items():
+                    file_name_pattern = feed_cfg.get("filename_selector", {})
+                    if not file_name_pattern:
+                        logger.warning(
+                                f"Feed {feed_name} "
+                                "missing selector pattern."
+                        )
+                        continue
+
+                    if fnmatch.fnmatch(file_path.name, file_name_pattern):
+                        matched_feed = feed_name
+                        matched_entity = feed_cfg.get("target_entity")
+                        break
+
+                if matched_feed:
+                    plan.append(
+                            {
+                                "provider": provider,
+                                "batch_id": batch_id,
+                                "file": file_path,
+                                "feed": matched_feed,
+                                "target_entity": matched_entity,
+                            }
+                    )
+                    logger.info(
+                        "Plan created for: "
+                        f"{file_path.name} -> {matched_entity}"
+                    )
+                else:
+                    logger.warning(f"File didn't match any: {file_path.name}")
+
+    if not plan:
+        logger.warning("No files matched any feed pattern.")
+    else:
+        logger.info(
+                "Planned: "
+                f"{len(plan)} file(s) total."
+        )
+
+    return plan
+
+
 def main() -> None:
     """
     Entry point of the pipeline.
@@ -104,6 +174,9 @@ def main() -> None:
 
     batches = discover_batches(paths)
     logger.info(f"Found batches: {batches}")
+
+    plan = build_plan(batches, mappings)
+    pprint(plan)
 
 if __name__ == "__main__":
     main()
