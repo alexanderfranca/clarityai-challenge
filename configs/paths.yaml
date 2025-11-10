@@ -1,5 +1,5 @@
 providers:
-  BoxOfficeMetrics:
+  boxofficemetrics:
     incoming_globs:
       - "data/incoming/boxofficemetrics/*/domestic_*.csv"
       - "data/incoming/boxofficemetrics/*/international*.csv"
