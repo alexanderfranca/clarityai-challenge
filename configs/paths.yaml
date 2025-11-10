@@ -1,0 +1,17 @@
+providers:
+  BoxOfficeMetrics:
+    incoming_globs:
+      - "data/incoming/boxofficemetrics/*/domestic_*.csv"
+      - "data/incoming/boxofficemetrics/*/international*.csv"
+      - "data/incoming/boxofficemetrics/*/financials_*.csv"
+    quarantine_seconds: 60
+    min_bytes: 10
+    feed: "monthly_csv"
+    batch:
+      folder_level: 1
+      readiness:
+        marker_file: "_READY"
+        require:
+          domestic:      { pattern: "domestic_*.csv",      min: 1 }
+          international: { pattern: "international*.csv",  min: 1 }
+          financials:    { pattern: "financials_*.csv",    min: 1 }

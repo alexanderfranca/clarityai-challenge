@@ -1,0 +1,69 @@
+version: 1
+providers:
+  boxofficemetrics:
+    owner: Alexander Fernandes <affedem@gmail.com>
+    schema_version: 1
+
+    feeds:
+      domestic_csv:
+        filename_selector: "provider3_domestic*.csv"
+        input_format: csv
+        csv_options: { header: true, delimiter: ",", encoding: "utf-8" }
+        target_entity: boxofficemetrics_domestic_stage
+        mappings:
+          film_name:            { to: title, type: string, normalize: [strip, collapse_ws] }
+          year_of_release:      { to: year,  type: int }
+          box_office_gross_usd: { to: domestic_box_office_gross, type: int, clamp: [0, null] }
+        derives:
+          movie_key: { from: [title, year], using: derive_movie_key_v1 }
+        stamp_metadata:
+          provider: "boxofficemetrics"
+          feed: "domestic_csv"
+          schema_version: 1
+        record_identity:
+          record_hash: { from: [title, year, domestic_box_office_gross], using: sha256_v1 }
+        dedupe:
+          keys: [movie_key, record_hash]
+          order_by: [source_mod_time DESC, ingest_ts DESC]
+      international_csv:
+        filename_selector: "provider3_international*.csv"
+        input_format: csv
+        csv_options: { header: true, delimiter: ",", encoding: "utf-8" }
+        target_entity: boxofficemetrics_international_stage
+        mappings:
+          film_name:            { to: title, type: string, normalize: [strip, collapse_ws] }
+          year_of_release:      { to: year,  type: int }
+          box_office_gross_usd: { to: international_box_office_gross, type: int, clamp: [0, null] }
+        derives:
+          movie_key: { from: [title, year], using: derive_movie_key_v1 }
+        stamp_metadata:
+          provider: "boxofficemetrics"
+          feed: "international_csv"
+          schema_version: 1
+        record_identity:
+          record_hash: { from: [title, year, international_box_office_gross], using: sha256_v1 }
+        dedupe:
+          keys: [movie_key, record_hash]
+          order_by: [source_mod_time DESC, ingest_ts DESC]
+      financials_csv:
+        filename_selector: "provider3_financials*.csv"
+        input_format: csv
+        csv_options: { header: true, delimiter: ",", encoding: "utf-8" }
+        target_entity: boxofficemetrics_financials_stage
+        mappings:
+          film_name:             { to: title, type: string, normalize: [strip, collapse_ws] }
+          year_of_release:       { to: year,  type: int }
+          production_budget_usd: { to: production_budget_usd, type: int, clamp: [0, null] }
+          marketing_spend_usd:   { to: marketing_spend_usd,   type: int, clamp: [0, null] }
+        derives:
+          movie_key: { from: [title, year], using: derive_movie_key_v1 }
+        stamp_metadata:
+          provider: "boxofficemetrics"
+          feed: "financials_csv"
+          schema_version: 1
+        record_identity:
+          record_hash: { from: [title, year, production_budget_usd, marketing_spend_usd], using: sha256_v1 }
+        dedupe:
+          keys: [movie_key, record_hash]
+          order_by: [source_mod_time DESC, ingest_ts DESC]
+
