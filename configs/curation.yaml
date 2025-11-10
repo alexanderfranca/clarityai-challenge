@@ -1,0 +1,27 @@
+entities:
+  movie_metrics:
+    join_key: movie_key
+    precedence:
+      title: [boxofficemetrics, criticagg, audiencepulse]
+      year:  [boxofficemetrics, criticagg, audiencepulse]
+    sources:
+      boxofficemetrics:
+        feeds: [domestic_csv, international_csv, financials_csv]
+      criticagg:
+        feeds: [reviews_csv]
+      audiencepulse:
+        feeds: [ratings_json]
+    quality_checks:
+      not_null: [movie_key, title, year]
+      non_negative: [
+                     domestic_box_office_gross,
+                     international_box_office_gross,
+                     production_budget_usd,
+                     marketing_spend_usd,
+                     critic_score_percentage,
+                     top_critic_score,
+                     critic_votes,
+                     audience_average_score,
+                     audience_votes
+                   ]
+    output_path: data/silver/movie_metrics/
