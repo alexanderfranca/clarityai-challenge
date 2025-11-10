@@ -15,3 +15,13 @@ providers:
           domestic:      { pattern: "domestic_*.csv",      min: 1 }
           international: { pattern: "international*.csv",  min: 1 }
           financials:    { pattern: "financials_*.csv",    min: 1 }
+  criticagg:
+    incoming_globs: "data/incoming/criticagg/*/*.csv"
+    readiness:
+      marker_file: "_READY"
+      quarantine_seconds: 0
+  audiencepulse:
+    incoming_globs: "data/incoming/audiencepulse"
+    readiness:
+      marker_file: "_READY"
+      quarantine_seconds: 0

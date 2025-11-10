@@ -97,3 +97,63 @@ entities:
       - "not_null(provider, feed, batch_id, file_hash, ingest_ts, schema_version, record_hash, movie_key, title, year)"
       - "unique(movie_key, record_hash)"
       - "non_negative(production_budget_usd, marketing_spend_usd)"
+
+  # CriticAgg SOURCE
+  criticagg_stage:
+    owner: Alexander Fernandes <affedem@gmail.com>
+    schema_version: 1
+    tier: bronze
+    description: Raw-normalized for CriticAgg provider.
+    primary_key: [movie_key, record_hash]
+    natural_key: [movie_key]
+    partition_by: [batch_id]
+    # lineage columns (bronze)
+    columns:
+      - { name: provider,           type: STRING,   nullable: false }
+      - { name: feed,               type: STRING,   nullable: false }
+      - { name: batch_id,           type: STRING,   nullable: false }
+      - { name: source_file,        type: STRING,   nullable: false }
+      - { name: source_mod_time,    type: TIMESTAMP,nullable: true  }
+      - { name: file_hash,          type: STRING,   nullable: false }
+      - { name: ingest_ts,          type: TIMESTAMP,nullable: false }
+      - { name: schema_version,     type: INT64,    nullable: false }
+      - { name: record_hash,        type: STRING,   nullable: false }
+      # normalized business columns
+      - { name: movie_key,                      type: STRING,  nullable: false }
+      - { name: title,                          type: STRING,  nullable: false }
+      - { name: year,                           type: INT64,   nullable: false, checks: ["between(1900,2035)"] }
+      - { name: critic_score_percentage,        type: INT64,   nullable: true,  checks: ["between(0,100)"] }
+      - { name: top_critic_score,               type: FLOAT64, nullable: true,  checks: ["between(0,10)"] }
+      - { name: total_critic_reviews_counted,   type: INT64,   nullable: true,  checks: ["non_negative"] }
+    checks:
+      - "not_null(provider,feed,batch_id,file_hash,ingest_ts,schema_version,record_hash,movie_key,title,year)"
+      - "unique(movie_key, record_hash)"
+
+  audiencepulse_ratings_stage:
+    tier: bronze
+    schema_version: 1
+    description: AudiencePulse ratings (JSON)
+    primary_key: [movie_key, record_hash]
+    natural_key: [movie_key]
+    partition_by: [batch_id]
+    columns:
+      # bronze metadata
+      - { name: provider,        type: STRING,    nullable: false }
+      - { name: feed,            type: STRING,    nullable: false }
+      - { name: batch_id,        type: STRING,    nullable: false }
+      - { name: source_file,     type: STRING,    nullable: false }
+      - { name: source_mod_time, type: TIMESTAMP, nullable: true  }
+      - { name: file_hash,       type: STRING,    nullable: false }
+      - { name: ingest_ts,       type: TIMESTAMP, nullable: false }
+      - { name: schema_version,  type: INT64,     nullable: false }
+      - { name: record_hash,     type: STRING,    nullable: false }
+      # normalized business columns
+      - { name: movie_key,                  type: STRING,  nullable: false }
+      - { name: title,                      type: STRING,  nullable: false }
+      - { name: year,                       type: INT64,   nullable: false, checks: ["between(1900,2035)"] }
+      - { name: audience_average_score,     type: FLOAT64, nullable: true,  checks: ["between(0,10)"] }
+      - { name: total_audience_ratings,     type: INT64,   nullable: true,  checks: ["non_negative"] }
+      - { name: domestic_box_office_gross,  type: INT64,   nullable: true,  checks: ["non_negative"] }
+    checks:
+      - "not_null(provider,feed,batch_id,file_hash,ingest_ts,schema_version,record_hash,movie_key,title,year)"
+      - "unique(movie_key, record_hash)"

@@ -3,7 +3,6 @@ providers:
   boxofficemetrics:
     owner: Alexander Fernandes <affedem@gmail.com>
     schema_version: 1
-
     feeds:
       domestic_csv:
         filename_selector: "provider3_domestic*.csv"
@@ -67,3 +66,53 @@ providers:
           keys: [movie_key, record_hash]
           order_by: [source_mod_time DESC, ingest_ts DESC]
 
+  audiencepulse:
+    owner: Alexander Fernandes <affedem@gmail.com>
+    schema_version: 1
+    feeds:
+      ratings_json:
+        filename_selector: "provider2*.json"
+        input_format: json
+        target_entity: audiencepulse_ratings_stage
+        required: true
+        mappings:
+          title:                   { to: title,                       type: string, normalize: [strip, collapse_ws] }
+          year:                    { to: year,                        type: int }
+          audience_average_score:  { to: audience_average_score,      type: float }
+          total_audience_ratings:  { to: total_audience_ratings,      type: int,   clamp: [0, null] }
+          domestic_box_office_gross: { to: domestic_box_office_gross, type: int, clamp: [0, null] }
+        derives:
+          # movie_key will be derived from (title, year)
+          movie_key: { using: derive_movie_key_v1 }
+        record_identity:
+          # business identity
+          columns: ["title","year","audience_average_score","total_audience_ratings","domestic_box_office_gross"]
+        stamp_metadata:
+          provider: "audiencepulse"
+          feed: "ratings_json"
+          schema_version: 1
+
+  criticagg:
+    owner: Alexander Fernandes <affedem@gmail.com>
+    schema_version: 1
+    feeds:
+      reviews_csv:
+        filename_selector: "provider1*.csv"
+        input_format: csv
+        csv_options: { header: true, delimiter: ",", encoding: "utf-8" }
+        required: true
+        target_entity: criticagg_stage
+        mappings:
+          movie_title:                   { to: title,                        type: string, normalize: [strip, collapse_ws] }
+          release_year:                  { to: year,                         type: int }
+          critic_score_percentage:       { to: critic_score_percentage,      type: int,   clamp: [0, 100] }
+          top_critic_score:              { to: top_critic_score,             type: float }
+          total_critic_reviews_counted:  { to: total_critic_reviews_counted, type: int,   clamp: [0, null] }
+        derives:
+          movie_key: { using: derive_movie_key_v1 }
+        record_identity:
+          columns: ["title","year","critic_score_percentage","top_critic_score","total_critic_reviews_counted"]
+        stamp_metadata:
+          provider: "criticagg"
+          feed: "reviews_csv"
+          schema_version: 1
