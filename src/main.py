@@ -5,6 +5,7 @@ import hashlib
 import fnmatch
 import yaml
 import json
+from collections import defaultdict
 from typing import (
         Dict,
         List,
@@ -96,6 +97,156 @@ def discover_batches(paths_cfg: dict) -> Dict[str, List[str]]:
         logger.info(f"Discovered {total} ready batch(es).")
 
     return result
+
+
+def _sample_json_records(path: Path, max_records: int = 50):
+    # Try JSON Lines first; fallback to a single JSON array
+    with path.open("r", encoding="utf-8") as f:
+        first = f.read(2048)
+        f.seek(0)
+        if first.lstrip().startswith("["):  # JSON array
+            import json as _json
+            arr = _json.load(f)
+            for rec in arr[:max_records]:
+                if isinstance(rec, dict):
+                    yield rec
+            return
+        # JSONL
+        f.seek(0)
+        count = 0
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                import json as _json
+                rec = _json.loads(line)
+                if isinstance(rec, dict):
+                    yield rec
+                    count += 1
+                    if count >= max_records:
+                        break
+            except Exception:
+                raise ValueError("Invalid JSON/JSONL content")
+
+
+def precheck_and_schema_gate_json(item: Dict[str, Any], feed_cfg: Dict[str, Any]) -> Dict[str, Any] | None:
+    file_path = Path(item["file"])
+    if not file_path.exists() or not file_path.is_file() or file_path.stat().st_size <= 0:
+        logger.error(f"File missing/empty: {file_path}")
+        return None
+
+    file_hash = _sha256_file(file_path)
+    if already_processed(item["provider"], item["batch_id"], file_path.name, file_hash):
+        logger.info(f"⏭️  Skip (already processed): {file_path.name}")
+        return None
+
+    required = set(_required_source_cols(feed_cfg))
+    seen_keys = set()
+    try:
+        for rec in _sample_json_records(file_path, max_records=50):
+            seen_keys.update(rec.keys())
+    except Exception as e:
+        logger.error(f"Cannot sample JSON for {file_path.name}: {e}")
+        return None
+
+    missing = sorted(list(required - seen_keys))
+    extra = sorted(list(seen_keys - required))
+    if missing:
+        logger.error(f"Schema gate failed (JSON): {file_path.name} missing {missing}")
+        return None
+    if extra:
+        logger.warning(f"⚠️  Additive fields detected in {file_path.name}: {extra} (allowed in bronze)")
+
+    enriched = dict(item)
+    enriched.update({
+        "size_bytes": file_path.stat().st_size,
+        "source_mod_time": datetime.fromtimestamp(file_path.stat().st_mtime, tz=timezone.utc).isoformat(),
+        "file_hash": file_hash,
+        "header": sorted(list(seen_keys)),
+        "required_cols": sorted(list(required)),
+        "extra_cols": extra,
+    })
+    logger.info(f"✅ JSON precheck passed: {file_path.name}")
+    return enriched
+
+
+def _apply_mappings(row: dict, feed_cfg: dict) -> dict:
+    out = {}
+    for src, spec in feed_cfg.get("mappings", {}).items():
+        tgt = spec["to"]; typ = (spec.get("type") or "string").lower()
+        val = row.get(src)
+        if val is None:
+            out[tgt] = None
+            continue
+        if typ == "int":
+            try: out[tgt] = int(val)
+            except: out[tgt] = None
+        elif typ in ("string", "str"):
+            out[tgt] = _collapse_ws(str(val))
+        else:
+            out[tgt] = val
+    return out
+
+def ingest_json_generic(item: dict, mappings_cfg: dict) -> None:
+    if mappings_cfg["providers"][item["provider"]]["feeds"][item["feed"]].get("input_format","csv").lower() != "json":
+        return
+
+    provider = item["provider"]; batch_id = item["batch_id"]; feed = item["feed"]
+    feed_cfg = mappings_cfg["providers"][provider]["feeds"][feed]
+    schema_version = mappings_cfg["providers"][provider].get("schema_version", 1)
+    file_path = Path(item["file"])
+
+    out_dir = BRONZE_ROOT / provider / feed / batch_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{item['file_hash'][:12]}.csv"
+
+    # Determine target columns from mappings + bronze metadata
+    target_cols = [spec["to"] for spec in feed_cfg.get("mappings", {}).values()]
+    out_columns = [
+        "provider","feed","batch_id","source_file","source_mod_time","file_hash","ingest_ts","schema_version","record_hash",
+        *target_cols
+    ]
+
+    seen = set(); rows_out = 0; rows_in = 0
+    ingest_ts = datetime.now(timezone.utc).isoformat()
+
+    with file_path.open("r", encoding="utf-8") as fin, out_path.open("w", encoding="utf-8", newline="") as fout:
+        writer = csv.DictWriter(fout, fieldnames=out_columns); writer.writeheader()
+
+        for rec in _sample_json_records(file_path, max_records=10_000_000):
+            rows_in += 1
+            mapped = _apply_mappings(rec, feed_cfg)
+
+            # Optional: derive movie_key only if you mapped title+year
+            if "movie_key" in target_cols:
+                pass  # you mapped it yourself
+            elif "title" in mapped and "year" in mapped and mapped["year"] is not None:
+                mapped["movie_key"] = _derive_movie_key_v1(mapped["title"], mapped["year"])
+                if "movie_key" not in target_cols:
+                    out_columns.append("movie_key")  # future-proof if needed
+
+            # Build record hash from the mapped fields (stable order)
+            payload = "|".join(str(mapped.get(c, "")) for c in sorted(target_cols))
+            record_hash = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+            dedupe_key = (mapped.get("movie_key"), record_hash)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            writer.writerow({
+                "provider": provider, "feed": feed, "batch_id": batch_id,
+                "source_file": file_path.name, "source_mod_time": item["source_mod_time"],
+                "file_hash": item["file_hash"], "ingest_ts": ingest_ts,
+                "schema_version": schema_version, "record_hash": record_hash,
+                **mapped,
+            })
+            rows_out += 1
+
+    write_audit(provider=provider, batch_id=batch_id, feed=feed,
+                source_file=file_path.name, file_hash=item["file_hash"],
+                rows_in=rows_in, rows_out=rows_out, status="ok")
+    logger.info(f"🟢 Wrote bronze(JSON): {out_path} (rows_in={rows_in}, rows_out={rows_out})")
 
 
 def build_plan(batches: Dict[str, List[str]], mappings_cfg: dict) -> List[Dict[str, Any]]:
@@ -699,6 +850,33 @@ def consolidate_bronze_feed(provider: str, feed: str, batch_id: str):
     )
 
 
+def required_feeds_map(mappings_cfg: dict) -> Dict[str, List[str]]:
+    out = {}
+    for provider, pcfg in mappings_cfg.get("providers", {}).items():
+        req = []
+        for fname, fcfg in pcfg.get("feeds", {}).items():
+            if fcfg.get("required", True):
+                req.append(fname)
+        out[provider] = sorted(req)
+    return out
+
+
+def batch_completeness(qualified_plan: List[Dict[str, Any]],
+                       mappings_cfg: dict) -> Dict[Tuple[str,str], dict]:
+    """Return {(provider,batch_id): {"present": set(feeds), "required": set(...), "complete": bool}}"""
+    required = required_feeds_map(mappings_cfg)
+    present = defaultdict(set)
+    for it in qualified_plan:
+        present[(it["provider"], it["batch_id"])].add(it["feed"])
+
+    result = {}
+    for (prov, bid), pres in present.items():
+        req = set(required.get(prov, []))
+        complete = req.issubset(pres)
+        result[(prov, bid)] = {"present": pres, "required": req, "complete": complete}
+    return result
+
+
 def main() -> None:
     """
     Entry point of the pipeline.
@@ -726,6 +904,16 @@ def main() -> None:
         ingest_domestic_csv(q, mappings)
         ingest_international_csv(q, mappings)
         ingest_financials_csv(q, mappings)
+
+    summary = batch_completeness(qualified_plan, mappings)
+    for (prov, bid), info in sorted(summary.items()):
+        write_audit(provider=prov, batch_id=bid, level="batch",
+                    completeness=sorted(list(info["present"])),
+                    required=sorted(list(info["required"])),
+                    complete=info["complete"], status="ok")
+        if not info["complete"]:
+            logger.warning(f"Batch incomplete → skip silver later: {prov}/{bid}. "
+                           f"present={sorted(info['present'])}, required={sorted(info['required'])}")
 
     processed_batches = {
             (i["provider"], i["batch_id"]) for i in qualified_plan
