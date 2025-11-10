@@ -1,17 +1,17 @@
 from collections import defaultdict
 from typing import Dict, List, Tuple
 from utils.log import init_logger 
-from src.core.loader import load_yaml
-from src.core.planner import (
+from core.loader import load_yaml
+from core.planner import (
         discover_batches,
         build_plan,
 )
-from src.core.validator import qualify_plan
-from src.core.ingest import (
+from core.validator import qualify_plan
+from core.ingest import (
         ingest_csv,
         consolidate_bronze_feed
 )
-from src.core.audit import write_audit
+from core.audit import write_audit
 
 
 logger = init_logger()
@@ -53,7 +53,6 @@ def batch_completeness(
 
 
 def main() -> None:
-    print("nada")
     # Load configurations
     contracts = load_yaml("contracts.yaml")
     mappings = load_yaml("mappings.yaml")
