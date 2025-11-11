@@ -11,6 +11,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 def write_yaml(path: Path, data: dict):
     import yaml
+
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as f:
         yaml.safe_dump(data, f, sort_keys=False)
@@ -43,22 +44,33 @@ def temp_project(tmp_path, monkeypatch):
     (tmp_path / "data" / "gold").mkdir(parents=True, exist_ok=True)
     (tmp_path / "audit").mkdir(parents=True, exist_ok=True)
 
-
     from src.core import (
-            loader,
-            audit,
-            planner,
-            ingest,
+        loader,
+        audit,
+        planner,
+        ingest,
     )
     import src.core.silver as silver
 
     monkeypatch.setattr(loader, "CONFIG_DIR", tmp_path / "configs", raising=False)
-    monkeypatch.setattr(audit, "AUDIT_LEDGER", tmp_path / "audit" / "ledger.jsonl", raising=False)
-    monkeypatch.setattr(planner, "INCOMING_DIR", tmp_path / "data" / "incoming", raising=False)
-    monkeypatch.setattr(ingest, "BRONZE_ROOT", tmp_path / "data" / "bronze", raising=False)
-    monkeypatch.setattr(silver, "BRONZE_ROOT", tmp_path / "data" / "bronze", raising=False)
-    monkeypatch.setattr(silver, "SILVER_ROOT", tmp_path / "data" / "silver", raising=False)
-    monkeypatch.setattr(silver, "AUDIT_LEDGER", tmp_path / "audit" / "ledger.jsonl", raising=False)
+    monkeypatch.setattr(
+        audit, "AUDIT_LEDGER", tmp_path / "audit" / "ledger.jsonl", raising=False
+    )
+    monkeypatch.setattr(
+        planner, "INCOMING_DIR", tmp_path / "data" / "incoming", raising=False
+    )
+    monkeypatch.setattr(
+        ingest, "BRONZE_ROOT", tmp_path / "data" / "bronze", raising=False
+    )
+    monkeypatch.setattr(
+        silver, "BRONZE_ROOT", tmp_path / "data" / "bronze", raising=False
+    )
+    monkeypatch.setattr(
+        silver, "SILVER_ROOT", tmp_path / "data" / "silver", raising=False
+    )
+    monkeypatch.setattr(
+        silver, "AUDIT_LEDGER", tmp_path / "audit" / "ledger.jsonl", raising=False
+    )
 
     return {
         "root": tmp_path,

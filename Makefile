@@ -8,7 +8,6 @@ help:
 	@echo "  make setup     - create venv and install deps"
 	@echo "  make run       - run the pipeline end-to-end"
 	@echo "  make test      - run all tests"
-	@echo "  make lint      - run ruff & black checks (optional)"
 	@echo "  make clean     - remove build artifacts and tmp files"
 
 $(VENV)/bin/activate: requirements.txt requirements-dev.txt
@@ -28,11 +27,6 @@ run: setup
 .PHONY: test
 test: setup
 	PYTHONPATH=$(PYTHONPATH) $(VENV)/bin/python -m pytest -q
-
-.PHONY: lint
-lint: setup
-	-$(VENV)/bin/ruff check .
-	-$(VENV)/bin/black --check .
 
 .PHONY: clean
 clean:
