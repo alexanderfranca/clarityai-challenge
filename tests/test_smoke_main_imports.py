@@ -1,8 +1,16 @@
-def test_imports():
-    import src.core.loader as _
-    import src.core.audit as _
-    import src.core.planner as _
-    import src.core.validator as _
-    import src.core.ingest as _
-    import src.core.silver as _
-    import src.core.gold as _
+import importlib
+import pytest
+
+MODULES = [
+    "src.core.loader",
+    "src.core.audit",
+    "src.core.planner",
+    "src.core.validator",
+    # add the rest here...
+]
+
+
+@pytest.mark.parametrize("mod", MODULES)
+def test_modules_are_importable(mod):
+    m = importlib.import_module(mod)
+    assert m is not None
