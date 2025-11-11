@@ -1,18 +1,18 @@
 from pathlib import Path
 from typing import (
-        Any,
-        Dict,
-        List,
-        Tuple,
-        Optional,
+    Any,
+    Dict,
+    List,
+    Tuple,
+    Optional,
 )
 import csv
 import json
 import hashlib
 from datetime import (
-        datetime,
-        timezone,
-        )
+    datetime,
+    timezone,
+)
 from .audit import already_processed
 
 
@@ -28,11 +28,7 @@ def _sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
-def _csv_header(
-        path: Path,
-        delimiter: str = ",",
-        encoding: str = "utf-8"
-        ) -> List[str]:
+def _csv_header(path: Path, delimiter: str = ",", encoding: str = "utf-8") -> List[str]:
     """
     Returns the CSV header.
     It tries to infer the CSV format using Sniffer.
@@ -99,10 +95,8 @@ def _sample_json_records(path: Path, max_records: int = 50):
 
 
 def precheck_csv(
-        item: Dict[str, Any],
-        feed_cfg: Dict[str, Any],
-        logger
-        ) -> Optional[Dict[str, Any]]:
+    item: Dict[str, Any], feed_cfg: Dict[str, Any], logger
+) -> Optional[Dict[str, Any]]:
     """
     Check:
     - CSV sanity (header for example);
@@ -116,30 +110,24 @@ def precheck_csv(
     - date/time of modification
     """
     file_path = Path(item["file"])
-    if not file_path.exists() or not \
-            file_path.is_file() or file_path.stat().st_size <= 0:
+    if (
+        not file_path.exists()
+        or not file_path.is_file()
+        or file_path.stat().st_size <= 0
+    ):
         logger.error(f"File missing/empty: {file_path}")
         return None
 
     file_hash = _sha256_file(file_path)
-    if already_processed(
-            item["provider"],
-            item["batch_id"],
-            file_path.name,
-            file_hash):
-        logger.info(
-                "Skip (already processed): "
-                f"{file_path.name}")
+    if already_processed(item["provider"], item["batch_id"], file_path.name, file_hash):
+        logger.info("Skip (already processed): " f"{file_path.name}")
         return None
 
     delimiter, encoding = _csv_options(feed_cfg)
     try:
         header = _csv_header(file_path, delimiter=delimiter, encoding=encoding)
     except Exception as e:
-        logger.error(
-                "Cannot read header for "
-                f"{file_path.name}: {e}"
-        )
+        logger.error("Cannot read header for " f"{file_path.name}: {e}")
         return None
 
     required = _required_source_cols(feed_cfg)
@@ -148,16 +136,15 @@ def precheck_csv(
 
     if missing:
         logger.error(
-                "Schema gate failed (CSV): "
-                f"{file_path.name} "
-                f"missing {missing}")
+            "Schema gate failed (CSV): " f"{file_path.name} " f"missing {missing}"
+        )
         return None
 
     if extra:
         logger.warning(
-                "Additive columns in "
-                f"{file_path.name}: "
-                f"{extra} (it's allowed in bronze)"
+            "Additive columns in "
+            f"{file_path.name}: "
+            f"{extra} (it's allowed in bronze)"
         )
 
     # Try to read one row to check if the file is actually ok.
@@ -166,10 +153,7 @@ def precheck_csv(
             reader = csv.DictReader(f, delimiter=delimiter)
             next(reader, None)
     except Exception as e:
-        logger.error(
-                f"CSV parse sanity failed for "
-                f"{file_path.name}: {e}"
-        )
+        logger.error(f"CSV parse sanity failed for " f"{file_path.name}: {e}")
         return None
 
     # TODO: metadata columns inclusion should come from a general function.
@@ -177,8 +161,8 @@ def precheck_csv(
         **item,
         "size_bytes": file_path.stat().st_size,
         "source_mod_time": datetime.fromtimestamp(
-                            file_path.stat().st_mtime, tz=timezone.utc
-                           ).isoformat(),
+            file_path.stat().st_mtime, tz=timezone.utc
+        ).isoformat(),
         "file_hash": file_hash,
         "header": header,
         "required_cols": required,
@@ -187,10 +171,8 @@ def precheck_csv(
 
 
 def precheck_json(
-        item: Dict[str, Any],
-        feed_cfg: Dict[str, Any],
-        logger
-        ) -> Optional[Dict[str, Any]]:
+    item: Dict[str, Any], feed_cfg: Dict[str, Any], logger
+) -> Optional[Dict[str, Any]]:
     """
     Check:
     - the sanity of a JSON file;
@@ -201,23 +183,17 @@ def precheck_json(
     - date of modification
     """
     file_path = Path(item["file"])
-    if not file_path.exists() or not\
-            file_path.is_file() or file_path.stat().st_size <= 0:
-        logger.error(
-                "File missing/empty: "
-                f"{file_path}")
+    if (
+        not file_path.exists()
+        or not file_path.is_file()
+        or file_path.stat().st_size <= 0
+    ):
+        logger.error("File missing/empty: " f"{file_path}")
         return None
 
     file_hash = _sha256_file(file_path)
-    if already_processed(
-            item["provider"],
-            item["batch_id"],
-            file_path.name,
-            file_hash
-            ):
-        logger.info(
-                "Skip (already processed): "
-                f"{file_path.name}")
+    if already_processed(item["provider"], item["batch_id"], file_path.name, file_hash):
+        logger.info("Skip (already processed): " f"{file_path.name}")
         return None
 
     required = set(_required_source_cols(feed_cfg))
@@ -227,9 +203,7 @@ def precheck_json(
         for rec in _sample_json_records(file_path, max_records=50):
             seen_keys.update(rec.keys())
     except Exception as e:
-        logger.error(
-                "Cannot sample JSON for "
-                f"{file_path.name}: {e}")
+        logger.error("Cannot sample JSON for " f"{file_path.name}: {e}")
         return None
 
     missing = sorted(list(required - seen_keys))
@@ -237,14 +211,13 @@ def precheck_json(
 
     if missing:
         logger.error(
-                "Schema gate failed (JSON): "
-                f"{file_path.name} missing {missing}")
+            "Schema gate failed (JSON): " f"{file_path.name} missing {missing}"
+        )
         return None
 
     if extra:
         logger.warning(
-                "Additive fields in "
-                f"{file_path.name}: {extra} (allowed in bronze)"
+            "Additive fields in " f"{file_path.name}: {extra} (allowed in bronze)"
         )
 
     # TODO: metadata columns inclusion should come from a general function.
@@ -252,8 +225,8 @@ def precheck_json(
         **item,
         "size_bytes": file_path.stat().st_size,
         "source_mod_time": datetime.fromtimestamp(
-                            file_path.stat().st_mtime, tz=timezone.utc
-                           ).isoformat(),
+            file_path.stat().st_mtime, tz=timezone.utc
+        ).isoformat(),
         "file_hash": file_hash,
         "header": sorted(list(seen_keys)),
         "required_cols": sorted(list(required)),
@@ -262,9 +235,8 @@ def precheck_json(
 
 
 def qualify_plan(
-        plan: List[Dict[str, Any]],
-        mappings_cfg: Dict[str, Any],
-        logger) -> List[Dict[str, Any]]:
+    plan: List[Dict[str, Any]], mappings_cfg: Dict[str, Any], logger
+) -> List[Dict[str, Any]]:
     """
     From the expected plan, make sure the files can be ingested.
     For example checks if the CSV or JSON are acutally valid formats.
@@ -275,14 +247,12 @@ def qualify_plan(
     for it in plan:
         prov = it["provider"]
         feed = it["feed"]
-        feed_cfg = mappings_cfg.get(
-                "providers", {}
-                ).get(prov, {}).get("feeds", {}).get(feed)
+        feed_cfg = (
+            mappings_cfg.get("providers", {}).get(prov, {}).get("feeds", {}).get(feed)
+        )
 
         if not feed_cfg:
-            logger.error(
-                    f"Missing feed config: {prov}.{feed}"
-            )
+            logger.error(f"Missing feed config: {prov}.{feed}")
             continue
 
         fmt = feed_cfg.get("input_format", "csv").lower()
@@ -291,9 +261,7 @@ def qualify_plan(
         elif fmt == "json":
             enriched = precheck_json(it, feed_cfg, logger)
         else:
-            logger.error(
-                    "Unsupported input_format "
-                    f"'{fmt}' for {prov}.{feed}")
+            logger.error("Unsupported input_format " f"'{fmt}' for {prov}.{feed}")
             enriched = None
 
         if enriched:
@@ -303,7 +271,6 @@ def qualify_plan(
         logger.error("No files passed precheck/schema gate.")
     else:
         logger.info(
-                "Precheck complete: "
-                f"{len(qualified)}/{len(plan)} file(s) qualified."
+            "Precheck complete: " f"{len(qualified)}/{len(plan)} file(s) qualified."
         )
     return qualified

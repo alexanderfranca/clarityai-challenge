@@ -9,10 +9,8 @@ AUDIT_LEDGER.parent.mkdir(parents=True, exist_ok=True)
 
 
 def already_processed(
-        provider: str,
-        batch_id: str,
-        source_file: str,
-        file_hash: str) -> bool:
+    provider: str, batch_id: str, source_file: str, file_hash: str
+) -> bool:
 
     if not AUDIT_LEDGER.exists():
         return False
@@ -26,8 +24,8 @@ def already_processed(
                     rec.get("provider"),
                     rec.get("batch_id"),
                     rec.get("source_file"),
-                    rec.get("file_hash")
-                   ) == key:
+                    rec.get("file_hash"),
+                ) == key:
                     return True
             except Exception:
                 continue
