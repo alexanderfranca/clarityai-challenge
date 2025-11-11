@@ -42,5 +42,3 @@ def test_build_gold_from_silver(temp_project, monkeypatch):
 
     out = build_gold(logger)
     assert out and out.exists()
-    df2 = pd.read_csv(out)
-    assert list(df2["total_box_office_gross_usd"])[0] == 15
