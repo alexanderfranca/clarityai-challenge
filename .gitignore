@@ -13,6 +13,7 @@ dist/
 *.egg-info/
 .eggs/
 
+data/
 audit/
 
 .pytest_cache/
@@ -26,7 +27,6 @@ htmlcov/
 .ipynb_checkpoints/
 *.nbconvert.ipynb
 
-data/
 !data/.gitkeep
 outputs/
 !outputs/.gitkeep
