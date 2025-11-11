@@ -6,7 +6,7 @@ PYTHONPATH ?= src
 help:
 	@echo "Targets:"
 	@echo "  make setup     - create venv and install deps"
-	@echo "  make run       - run the pipeline end-to-end"
+	@echo "  make run_etl   - run the pipeline end-to-end"
 	@echo "  make test      - run all tests"
 	@echo "  make clean     - remove build artifacts and tmp files"
 
@@ -20,9 +20,9 @@ $(VENV)/bin/activate: requirements.txt requirements-dev.txt
 .PHONY: setup
 setup: $(VENV)/bin/activate
 
-.PHONY: run
-run: setup
-	PYTHONPATH=$(PYTHONPATH) $(VENV)/bin/python -m src.main
+.PHONY: run_etl
+run_etl: setup
+	PYTHONPATH=$(PYTHONPATH) $(VENV)/bin/python -m src.main run_etl
 
 .PHONY: test
 test: setup
