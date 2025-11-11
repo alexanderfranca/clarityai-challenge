@@ -2,7 +2,7 @@ ClarityAI Data Engineering Challenge
 ====================================
 
 
-TL;DR — Quick Start
+TL;DR; — Quick Start
 ===================
 ```
 git clone https://github.com/alexanderfranca/clarityai-challenge.git
