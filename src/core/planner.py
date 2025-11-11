@@ -2,8 +2,8 @@ from pathlib import Path
 from typing import Dict, List, Any
 import fnmatch
 from datetime import (
-        datetime,
-        timezone,
+    datetime,
+    timezone,
 )
 
 
@@ -20,9 +20,7 @@ def discover_batches(paths_cfg: dict, logger) -> Dict[str, List[str]]:
     """
     result: Dict[str, List[str]] = {}
     for provider, cfg in paths_cfg.get("providers", {}).items():
-        incoming_dir = Path(
-                cfg.get("incoming_dir", INCOMING_DIR / provider)
-                ).resolve()
+        incoming_dir = Path(cfg.get("incoming_dir", INCOMING_DIR / provider)).resolve()
 
         # It's the mark that defines the files landed completely.
         # For this challenge it's a file named _READY.
@@ -36,20 +34,17 @@ def discover_batches(paths_cfg: dict, logger) -> Dict[str, List[str]]:
             continue
 
         ready_batches: List[str] = []
-        for batch_dir in sorted(
-                p for p in incoming_dir.iterdir() if p.is_dir()
-                ):
+        for batch_dir in sorted(p for p in incoming_dir.iterdir() if p.is_dir()):
             marker = batch_dir / readiness
 
             # Check if the the batch is ready to be ingested.
             if marker.exists():
                 ready_batches.append(batch_dir.name)
             elif quarantine_sec > 0:
-                age = (datetime.now(
-                        timezone.utc
-                    ) - datetime.fromtimestamp(
-                        batch_dir.stat().st_mtime, tz=timezone.utc
-                        )).total_seconds()
+                age = (
+                    datetime.now(timezone.utc)
+                    - datetime.fromtimestamp(batch_dir.stat().st_mtime, tz=timezone.utc)
+                ).total_seconds()
                 if age >= quarantine_sec:
                     ready_batches.append(batch_dir.name)
 
@@ -65,9 +60,8 @@ def discover_batches(paths_cfg: dict, logger) -> Dict[str, List[str]]:
 
 
 def build_plan(
-        batches: Dict[str, List[str]],
-        mappings_cfg: dict,
-        logger) -> List[Dict[str, Any]]:
+    batches: Dict[str, List[str]], mappings_cfg: dict, logger
+) -> List[Dict[str, Any]]:
     """
     Build a datastructure defining the plan to ingest the batch.
     - batches = list of providers and folders to be ingested.
@@ -93,9 +87,10 @@ def build_plan(
         for batch_id in batch_ids:
             batch_path = INCOMING_DIR / provider / batch_id
             for file_path in sorted(
-                    p for p in batch_path.glob("*")
-                    if p.is_file() and not p.name.startswith("_")
-                    ):
+                p
+                for p in batch_path.glob("*")
+                if p.is_file() and not p.name.startswith("_")
+            ):
 
                 matched_feed = matched_entity = None
                 for feed_name, feed_cfg in feeds.items():
@@ -107,13 +102,15 @@ def build_plan(
                         break
                 if matched_feed:
                     # Add meta information
-                    plan.append({
-                        "provider": provider,
-                        "batch_id": batch_id,
-                        "file": str(file_path),
-                        "feed": matched_feed,
-                        "target_entity": matched_entity,
-                    })
+                    plan.append(
+                        {
+                            "provider": provider,
+                            "batch_id": batch_id,
+                            "file": str(file_path),
+                            "feed": matched_feed,
+                            "target_entity": matched_entity,
+                        }
+                    )
                     logger.info(f"Plan: {file_path.name} -> {matched_entity}")
                 else:
                     logger.warning(f"Unmatched file: {file_path.name}")

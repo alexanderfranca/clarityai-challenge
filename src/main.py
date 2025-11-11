@@ -3,15 +3,11 @@ from typing import Dict, List, Tuple
 from utils.log import init_logger
 from core.loader import load_yaml
 from core.planner import (
-        discover_batches,
-        build_plan,
+    discover_batches,
+    build_plan,
 )
 from core.validator import qualify_plan
-from core.ingest import (
-        ingest_csv,
-        ingest_json,
-        consolidate_bronze_feed
-)
+from core.ingest import ingest_csv, ingest_json, consolidate_bronze_feed
 from core.silver import build_silver_movie_metrics
 from core.gold import build_gold
 from core.audit import write_audit
@@ -26,15 +22,18 @@ def required_feeds_map(mappings_cfg: dict) -> Dict[str, List[str]]:
     """
     out: Dict[str, List[str]] = {}
     for provider, pcfg in mappings_cfg.get("providers", {}).items():
-        req = [fname for fname, fcfg in pcfg.get("feeds", {}).items()
-               if fcfg.get("required", True)]
+        req = [
+            fname
+            for fname, fcfg in pcfg.get("feeds", {}).items()
+            if fcfg.get("required", True)
+        ]
         out[provider] = sorted(req)
     return out
 
 
 def batch_completeness(
-        qualified_plan: List[dict],
-        mappings_cfg: dict) -> Dict[Tuple[str, str], dict]:
+    qualified_plan: List[dict], mappings_cfg: dict
+) -> Dict[Tuple[str, str], dict]:
     """
     Return {(provider,batch_id): {'present', 'required', 'complete'}}.
     """
@@ -47,11 +46,7 @@ def batch_completeness(
     for (prov, bid), pres in present.items():
         req = set(req_map.get(prov, []))
         complete = req.issubset(pres)
-        result[(prov, bid)] = {
-                "present": pres,
-                "required": req,
-                "complete": complete
-        }
+        result[(prov, bid)] = {"present": pres, "required": req, "complete": complete}
     return result
 
 
@@ -90,18 +85,20 @@ def main() -> None:
                 ingest_json(item, mappings, contracts, logger)
             else:
                 logger.error(
-                        "Unsupported input_format "
-                        f"'{fmt}' for {provider}.{item['feed']}"
+                    "Unsupported input_format " f"'{fmt}' for {provider}.{item['feed']}"
                 )
 
         # Audit
         summary = batch_completeness(qualified, mappings)
         for (provider, batch_id), info in sorted(summary.items()):
             write_audit(
-                provider=provider, batch_id=batch_id, level="batch",
+                provider=provider,
+                batch_id=batch_id,
+                level="batch",
                 completeness=sorted(list(info["present"])),
                 required=sorted(list(info["required"])),
-                complete=info["complete"], status="ok"
+                complete=info["complete"],
+                status="ok",
             )
             if not info["complete"]:
                 logger.warning(
@@ -134,4 +131,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -3,10 +3,10 @@ from functools import reduce
 import json
 from pathlib import Path
 from typing import (
-        Dict,
-        List,
-        Optional,
-        Tuple,
+    Dict,
+    List,
+    Optional,
+    Tuple,
 )
 from datetime import datetime, timezone
 import pandas as pd
@@ -33,17 +33,15 @@ def _latest_complete_batch(provider: str) -> Optional[str]:
             except Exception:
                 continue
             if (
-                    rec.get("level") == "batch" 
-                    and rec.get("provider") == provider 
-                    and rec.get("complete") is True
-                ):
+                rec.get("level") == "batch"
+                and rec.get("provider") == provider
+                and rec.get("complete") is True
+            ):
                 ts_str = rec.get("ts")
                 ts = None
                 try:
                     if ts_str:
-                        ts = datetime.fromisoformat(
-                                ts_str.replace("Z", "+00:00")
-                                )
+                        ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
                 except Exception:
                     ts = None
 
@@ -75,9 +73,9 @@ def _resolve_inputs(curation_cfg: dict, logger) -> Dict[str, Dict[str, Path]]:
         batch_id = _latest_complete_batch(provider)
         if not batch_id:
             logger.warning(
-                    f"[silver] No complete batch for provider={provider}; "
-                    "skipping provider."
-                    )
+                f"[silver] No complete batch for provider={provider}; "
+                "skipping provider."
+            )
             continue
 
         feeds = curation_cfg["entities"]["movie_metrics"]["sources"][provider]["feeds"]
@@ -87,7 +85,9 @@ def _resolve_inputs(curation_cfg: dict, logger) -> Dict[str, Dict[str, Path]]:
             if p.exists():
                 feed_paths[feed] = p
             else:
-                logger.warning(f"[silver] Missing consolidated for {provider}/{feed}/{batch_id} -> {p}")
+                logger.warning(
+                    f"[silver] Missing consolidated for {provider}/{feed}/{batch_id} -> {p}"
+                )
 
         if feed_paths:
             resolved[provider] = feed_paths
@@ -119,20 +119,14 @@ def _nonneg(df: pd.DataFrame, col: str) -> pd.DataFrame:
     return df
 
 
-def _load_consolidated_into_df(
-        path: str,
-        lineage_columns: list) -> pd.DataFrame:
+def _load_consolidated_into_df(path: str, lineage_columns: list) -> pd.DataFrame:
     """
     Read CSV file into a Pandas DataFrame.
     """
     df = pd.read_csv(path)
 
     if "ingest_ts" in df.columns:
-        df["ingest_ts"] = pd.to_datetime(
-                df["ingest_ts"],
-                utc=True,
-                errors="coerce"
-                )
+        df["ingest_ts"] = pd.to_datetime(df["ingest_ts"], utc=True, errors="coerce")
     else:
         df["ingest_ts"] = pd.NaT
 
@@ -141,9 +135,8 @@ def _load_consolidated_into_df(
 
 
 def build_silver_movie_metrics(
-        curation_cfg: dict,
-        contracts: dict,
-        logger) -> Optional[Path]:
+    curation_cfg: dict, contracts: dict, logger
+) -> Optional[Path]:
     """
     Build the unified 'movie_metrics' silver table by joining bronze consolidated
     outputs across providers on movie_key, applying precedence for title/year,
@@ -184,29 +177,26 @@ def build_silver_movie_metrics(
 
     # Columns to ignore, but keeping the ingest_ts
     lineage_columns = [
-            item.get("name", {})
-            for item in lineage_columns_raw
-            if item.get("name", {}) != "ingest_ts"
+        item.get("name", {})
+        for item in lineage_columns_raw
+        if item.get("name", {}) != "ingest_ts"
     ]
 
     all_raw_dfs = {}
     for provider, feeds in resolved.items():
         for feed, path in feeds.items():
             df = _load_consolidated_into_df(str(path), lineage_columns)
-            df = (df.sort_values(["ingest_ts", join_key])
-                  .drop_duplicates(subset=[join_key], keep="last"))
+            df = df.sort_values(["ingest_ts", join_key]).drop_duplicates(
+                subset=[join_key], keep="last"
+            )
 
             all_raw_dfs[(provider, feed)] = df
 
     # TODO: To apply a better and more clear method/algorithm
-    merged_dfs = (
-            [
-                d.drop_duplicates(subset=[join_key], keep="last")
-                .set_index(join_key)
-                for (provider, feed), d
-                in all_raw_dfs.items()
-            ]
-    )
+    merged_dfs = [
+        d.drop_duplicates(subset=[join_key], keep="last").set_index(join_key)
+        for (provider, feed), d in all_raw_dfs.items()
+    ]
     # This collapses the merged_dfs.
     base = reduce(lambda a, b: a.combine_first(b), merged_dfs).reset_index()
     base = base.drop_duplicates(subset=[join_key])
@@ -231,7 +221,7 @@ def build_silver_movie_metrics(
 
     # Write + audit
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    out_path = (SILVER_ROOT / "movie_metrics" / f"movie_metrics_{ts}.csv")
+    out_path = SILVER_ROOT / "movie_metrics" / f"movie_metrics_{ts}.csv"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     base.to_csv(out_path, index=False)
 

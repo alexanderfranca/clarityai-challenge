@@ -168,15 +168,15 @@ def ingest_csv(
     # Prepare IO
     out_dir = BRONZE_ROOT / provider / feed / batch_id
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"{item['file_hash'][:12]}.csv"
+    file_hash_filename = f"{item['file_hash'][:12]}.csv"
+    out_path = out_dir / file_hash_filename
 
     rows_in = 0
     rows_out = 0
     ingest_ts = datetime.now(timezone.utc).isoformat()
     seen = set()
 
-    with file_path.open("r", encoding=encoding, newline="") as fin, \
-            out_path.open("w", encoding="utf-8", newline="") as fout:
+    with file_path.open("r", encoding=encoding, newline="") as fin, out_path.open("w", encoding="utf-8", newline="") as fout:
         reader = csv.DictReader(fin, delimiter=delimiter)
         writer = csv.DictWriter(fout, fieldnames=contract_cols)
         writer.writeheader()
@@ -398,7 +398,7 @@ def ingest_json(item: dict,
                 continue
             seen.add(dedupe_key)
 
-            # Build output row 
+            # Build output row
             out_row = {
                 "provider": provider,
                 "feed": feed,
@@ -475,6 +475,3 @@ def consolidate_bronze_feed(provider: str, feed: str, batch_id: str, logger):
             f"Consolidated {len(parts)} part(s) "
             f"-> {out_path} (rows={rows_out})"
     )
-
-
-
