@@ -1,0 +1,23 @@
+[
+{
+"title": "Inception",
+"year": "2010",
+"audience_average_score": 9.1,
+"total_audience_ratings": 1500000,
+"domestic_box_office_gross": 292576195
+},
+{
+"title": "The Dark Knight",
+"year": "2008",
+"audience_average_score": 9.4,
+"total_audience_ratings": 2200000,
+"domestic_box_office_gross": 533345358
+},
+{
+"title": "Parasite",
+"year": "2019",
+"audience_average_score": 9.0,
+"total_audience_ratings": 800000,
+"domestic_box_office_gross": 53369749
+}
+]
