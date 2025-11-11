@@ -1,0 +1,12 @@
+[project]
+name = "movie-pipeline"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = ["pandas", "pyyaml"]
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "black", "mypy"]
+
+[project.scripts]
+movie-pipeline = "src.main:main"
+

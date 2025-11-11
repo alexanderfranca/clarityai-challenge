@@ -1,5 +1,4 @@
-pyyaml
-pandas
 pytest
 ruff
 black
+mypy
