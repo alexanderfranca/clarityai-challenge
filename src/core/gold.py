@@ -27,11 +27,6 @@ def build_gold(logger) -> Path | None:
     num_cols = [c for c in df.columns if df[c].dtype.kind in "if"]
     df[num_cols] = df[num_cols].fillna(0)
 
-    # Derived KPIs
-    df["total_box_office_gross_usd"] = (
-        df["domestic_box_office_gross"] + df["international_box_office_gross"]
-    )
-
     df = df.drop_duplicates(subset=["movie_key"], keep="first").reset_index(drop=True)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     out_path = GOLD_DIR / f"movie_metrics_final_{ts}.csv"
