@@ -175,10 +175,8 @@ def ingest_csv(
     ingest_ts = datetime.now(timezone.utc).isoformat()
     seen = set()
 
-    with (
-            file_path.open("r", encoding=encoding, newline="") as fin,
-            out_path.open("w", encoding="utf-8", newline="") as fout
-        ):
+    with file_path.open("r", encoding=encoding, newline="") as fin, \
+            out_path.open("w", encoding="utf-8", newline="") as fout:
         reader = csv.DictReader(fin, delimiter=delimiter)
         writer = csv.DictWriter(fout, fieldnames=contract_cols)
         writer.writeheader()
