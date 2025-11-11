@@ -7,9 +7,10 @@ TL;DR — Quick Start
 ```
 git clone https://github.com/alexanderfranca/clarityai-challenge.git
 cd clarityai-challenge
-make setup       # create venv and install dependencies
-make test        # run unit tests
-make run_etl     # run the full ETL pipeline (bronze → silver → gold)
+make setup                # create venv and install dependencies
+source .venv/bin/activate # activate the virtual environment
+make test                 # run unit tests
+make run_etl              # run the full ETL pipeline (bronze → silver → gold)
 ```
 
 Query the generated gold data
