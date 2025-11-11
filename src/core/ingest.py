@@ -8,9 +8,11 @@ from typing import (
         Any,
         List,
         Iterable,
+        Iterator,
 )
 import csv
 import hashlib
+import json
 from .audit import write_audit
 
 
@@ -266,13 +268,166 @@ def ingest_csv(
     )
 
 
-def _write_csv_rows(out_path: Path, columns: List[str], rows: List[dict]):
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+def _iter_json_records(path: Path) -> Iterator[dict]:
+    """
+    This helper it allow JSONL and single JSON files.
+    """
+    with path.open("r", encoding="utf-8") as f:
+        head = f.read(2048)
+        f.seek(0)
+        if head.lstrip().startswith("["):
+            data = json.load(f)
+            if not isinstance(data, list):
+                return
+            for obj in data:
+                if isinstance(obj, dict):
+                    yield obj
+            return
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            obj = json.loads(line)
+            if isinstance(obj, dict):
+                yield obj
+
+
+def ingest_json(item: dict,
+        mappings_cfg: dict,
+        contracts_cfg: dict,
+        logger) -> None:
+    """
+    Bronze JSON ingester (mapping + contract driven).
+    - Reads JSON Lines or a single JSON array.
+    - Applies mappings (rename/cast/normalize) from mappings.yaml.
+    - Aligns output columns & order to contracts.yaml for target_entity.
+    - Derives movie_key (or title+year fallback).
+    - record_hash from record_identity.columns (or all business columns).
+    - Dedup within-file by (movie_key, record_hash).
+    - Stamps bronze metadata and writes CSV into bronze.
+    """
+    provider = item["provider"]
+    batch_id = item["batch_id"]
+    feed = item["feed"]
+    feed_cfg = mappings_cfg["providers"][provider]["feeds"][feed]
+    if (feed_cfg.get("input_format") or "csv").lower() != "json":
+        return
+
+    target_entity = feed_cfg.get("target_entity")
+    ent = contracts_cfg.get("entities", {}).get(target_entity)
+    if not ent:
+        logger.error(
+                f"Contract missing for entity: {target_entity}"
+        )
+        return
+
+    contract_cols: List[str] = [c["name"] for c in ent.get("columns", [])]
+    business_cols = [c for c in contract_cols if c not in META_COLS]
+
+    mappings = feed_cfg.get("mappings", {})
+    rec_id_cfg = feed_cfg.get("record_identity", {})
+    rec_id_cols = rec_id_cfg.get("columns") or business_cols
+
+    schema_version = mappings_cfg["providers"][provider].get(
+            "schema_version", 1
+            )
+    file_path = Path(item["file"])
+
+    out_dir = BRONZE_ROOT / provider / feed / batch_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"{item['file_hash'][:12]}.csv"
+
+    rows_in = 0
+    rows_out = 0
+    ingest_ts = datetime.now(timezone.utc).isoformat()
+    seen = set()
+
     with out_path.open("w", encoding="utf-8", newline="") as fout:
-        writer = csv.DictWriter(fout, fieldnames=columns)
+        writer = csv.DictWriter(fout, fieldnames=contract_cols)
         writer.writeheader()
-        for r in rows:
-            writer.writerow(r)
+
+        for rec in _iter_json_records(file_path):
+            rows_in += 1
+            # map/normalize/cast per mappings
+            mapped: Dict[str, Any] = {}
+            for src, spec in mappings.items():
+                target_name = spec["to"]
+                typ = spec.get("type", "string")
+                norm_ops = spec.get("normalize", [])
+                clamp = spec.get("clamp")  # e.g. [0, null]
+                val = rec.get(src)
+                val = _cast_value(val, typ)
+                val = _apply_normalize(val, norm_ops)
+
+                if clamp and isinstance(val, (int, float)):
+                    lo = clamp[0] if len(clamp) > 0 else None
+                    hi = clamp[1] if len(clamp) > 1 else None
+                    if lo is not None and isinstance(
+                            lo, (int, float)
+                            ) and val < lo:
+                        val = None
+                    if hi is not None and isinstance(
+                            hi, (int, float)
+                            ) and val > hi:
+                        val = None
+
+                mapped[target_name] = val
+
+            # derive movie_key (or title+year fallback)
+            derives = feed_cfg.get("derives", {})
+            if "movie_key" in derives:
+                # TODO: to be implemented
+                pass
+            if "movie_key" not in mapped:
+                if "title" in mapped and "year" in mapped and mapped["year"] is not None:
+                    try:
+                        mapped["movie_key"] = _derive_movie_key_v1(mapped["title"], int(mapped["year"]))
+                    except Exception:
+                        mapped["movie_key"] = None
+
+            if "movie_key" in business_cols and not mapped.get("movie_key"):
+                continue
+
+            # Record hash based on the columns
+            record_hash_cols = [c for c in rec_id_cols if c in mapped]
+            if not record_hash_cols:
+                record_hash_cols = [c for c in business_cols if c in mapped]
+            record_hash = _hash_payload(sorted(record_hash_cols), mapped)
+
+            # Deduplication baseed on key
+            dedupe_key = (mapped.get("movie_key"), record_hash)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            # Build output row 
+            out_row = {
+                "provider": provider,
+                "feed": feed,
+                "batch_id": batch_id,
+                "source_file": file_path.name,
+                "source_mod_time": item["source_mod_time"],
+                "file_hash": item["file_hash"],
+                "ingest_ts": ingest_ts,
+                "schema_version": schema_version,
+                "record_hash": record_hash,
+            }
+            # business: columns defined in contract
+            for c in business_cols:
+                out_row[c] = mapped.get(c)
+
+            writer.writerow(out_row)
+            rows_out += 1
+
+    write_audit(
+        provider=provider, batch_id=batch_id, feed=feed,
+        source_file=file_path.name, file_hash=item["file_hash"],
+        rows_in=rows_in, rows_out=rows_out, status="ok"
+    )
+    logger.info(
+            f"Wrote bronze(JSON): {out_path} "
+            f"(rows_in={rows_in}, rows_out={rows_out})"
+    )
 
 
 def consolidate_bronze_feed(provider: str, feed: str, batch_id: str, logger):
