@@ -222,6 +222,7 @@ def build_silver_movie_metrics(
         base = _nonneg(base, col)
 
     # Set column order (optional in contracts but nice to have)
+    desired_order = []
     if contracts["optional_columns_order"]:
         desired_order = contracts["optional_columns_order"]
     ordered = [c for c in desired_order if c in base.columns]
