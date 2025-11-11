@@ -2,7 +2,30 @@ version: 1
 evolution_policy:
   additive_fields: allow
   breaking_changes: require_version_bump_and_review
-
+lineage_columns:
+  - { name: provider,           type: STRING,   nullable: false }
+  - { name: feed,               type: STRING,   nullable: false }
+  - { name: batch_id,           type: STRING,   nullable: false }
+  - { name: source_file,        type: STRING,   nullable: false }
+  - { name: source_mod_time,    type: TIMESTAMP,nullable: true  }
+  - { name: file_hash,          type: STRING,   nullable: false }
+  - { name: ingest_ts,          type: TIMESTAMP,nullable: false }
+  - { name: schema_version,     type: INT64,    nullable: false }
+  - { name: record_hash,        type: STRING,   nullable: false }
+optional_columns_order:
+  - movie_key
+  - title
+  - year
+  - domestic_box_office_gross
+  - international_box_office_gross
+  - production_budget_usd
+  - marketing_spend_usd
+  - critic_score_percentage
+  - top_critic_score
+  - critic_votes
+  - audience_average_score
+  - audience_score_100
+  - audience_votes
 entities:
   # ---------------------------
   # BRONZE / STAGE ENTITIES
