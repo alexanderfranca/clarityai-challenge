@@ -18,5 +18,3 @@ def init_logger(level=logging.INFO) -> logging.Logger:
         logger.addHandler(handler)
         logger.setLevel(level)
     return logger
-
-
